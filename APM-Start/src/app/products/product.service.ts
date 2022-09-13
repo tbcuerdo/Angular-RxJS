@@ -1,9 +1,10 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 
-import { catchError, Observable, tap, throwError } from 'rxjs';
+import { BehaviorSubject, catchError, combineLatest, map, merge, Observable, scan, Subject, tap, throwError } from 'rxjs';
 
 import { Product } from './product';
+import { ProductCategoryService } from '../product-categories/product-category.service';
 
 @Injectable({
   providedIn: 'root'
@@ -12,27 +13,72 @@ export class ProductService {
   private productsUrl = 'api/products';
   private suppliersUrl = 'api/suppliers';
   
-  constructor(private http: HttpClient) { }
+  constructor(private http: HttpClient, private categoryService: ProductCategoryService) { }
 
-  getProducts(): Observable<Product[]> {
-    return this.http.get<Product[]>(this.productsUrl)
-      .pipe(
-        tap(data => console.log('Products: ', JSON.stringify(data))),
-        catchError(this.handleError)
-      );
+  products$ = this.http.get<Product[]>(this.productsUrl)
+  .pipe(
+    tap(data => console.log('Products: ', JSON.stringify(data))),
+    catchError(this.handleError)
+  );
+
+  productsTransformed$ = this.http.get<Product[]>(this.productsUrl)
+  .pipe(
+    tap(data => console.log('Products: ', JSON.stringify(data))),
+    map(products => 
+      products.map(product => ({
+        ...product,
+        price: product.price ? product.price * 1.5 : 0,
+        searchKey: [product.productName]
+      } as Product))),
+    catchError(this.handleError)
+  );
+
+  productsWithCategory$ = combineLatest([
+    this.products$, 
+    this.categoryService.productCategories$
+  ]).pipe(
+    tap(data => console.log('Products: ', JSON.stringify(data))),
+    map(([products, categories]) => 
+      products.map(product => ({
+        ...product,
+        price: product.price ? product.price * 1.5 : 0,
+        category: categories.find(c => product.categoryId === c.id)?.name,
+        searchKey: [product.productName]
+      } as Product))),
+    catchError(this.handleError)
+  );
+
+  // create a behavior subject for the selection of a product
+  private productSelectedSubject = new BehaviorSubject<number>(0);
+  // create an observable action from the behavior subject for updating the currently displayed selected product 
+  productSelectedAction = this.productSelectedSubject.asObservable();
+  
+  // create an observable for mapping product selection from the products
+  selectedProduct$ = combineLatest([
+    this.productsWithCategory$,
+    this.productSelectedAction
+  ]).pipe(
+    map(([products, selectedProductId]) => products.find(product => product.id === selectedProductId)),
+    tap(product => console.log('selected product: ', JSON.stringify(product)))
+  );
+
+  // create a method that will emit the change in product selection
+  selectedProductChanged(selectedProductId: number): void {
+    this.productSelectedSubject.next(selectedProductId);
   }
 
-  private fakeProduct(): Product {
-    return {
-      id: 42,
-      productName: 'Another One',
-      productCode: 'TBX-0042',
-      description: 'Our new product',
-      price: 8.9,
-      categoryId: 3,
-      // category: 'Toolbox',
-      quantityInStock: 30
-    };
+  private productInsertSubject = new Subject<Product>();
+  productInsertAction$ = this.productInsertSubject.asObservable();
+
+  productsWithAdd$ = merge(
+    this.productsWithCategory$,
+    this.productInsertAction$
+  ).pipe(
+    scan((acc, value) => (value instanceof Array) ? [...value] : [...acc, value], [] as Product[])
+  );
+
+  addProduct(newProduct? : Product){
+
   }
 
   private handleError(err: HttpErrorResponse): Observable<never> {
@@ -49,6 +95,19 @@ export class ProductService {
     }
     console.error(err);
     return throwError(() => errorMessage);
+  }
+
+  private fakeProduct(): Product {
+    return {
+      id: 42,
+      productName: 'Another One',
+      productCode: 'TBX-0042',
+      description: 'Our new product',
+      price: 8.9,
+      categoryId: 3,
+      category: 'Toolbox',
+      quantityInStock: 30
+    };
   }
 
 }
