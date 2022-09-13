@@ -1,10 +1,11 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 
-import { BehaviorSubject, catchError, combineLatest, map, merge, Observable, scan, Subject, tap, throwError } from 'rxjs';
+import { BehaviorSubject, catchError, combineLatest, filter, forkJoin, map, merge, Observable, of, scan, shareReplay, Subject, switchMap, tap, throwError } from 'rxjs';
 
 import { Product } from './product';
 import { ProductCategoryService } from '../product-categories/product-category.service';
+import { Supplier } from '../suppliers/supplier';
 
 @Injectable({
   providedIn: 'root'
@@ -18,6 +19,7 @@ export class ProductService {
   products$ = this.http.get<Product[]>(this.productsUrl)
   .pipe(
     tap(data => console.log('Products: ', JSON.stringify(data))),
+    shareReplay(1),
     catchError(this.handleError)
   );
 
@@ -78,8 +80,23 @@ export class ProductService {
   );
 
   addProduct(newProduct? : Product){
-
+    newProduct = newProduct || this.fakeProduct();
+    this.productInsertSubject.next(newProduct);
   }
+
+  selectedProductSuppliers$ = this.selectedProduct$
+  .pipe(
+    filter(product => Boolean(product)),
+    switchMap(selectedProduct => {
+      if (selectedProduct?.supplierIds){
+        return forkJoin(selectedProduct.supplierIds.map(supplierId => 
+          this.http.get<Supplier>(`${this.suppliersUrl}/${supplierId}`)))
+      } else {
+        return of([]);
+      }
+    }),
+    tap(suppliers => console.log('product suppliers ', JSON.stringify(suppliers)))
+  );
 
   private handleError(err: HttpErrorResponse): Observable<never> {
     // in a real world app, we may send the server to some remote logging infrastructure
