@@ -61,7 +61,8 @@ export class ProductService {
     this.productSelectedAction
   ]).pipe(
     map(([products, selectedProductId]) => products.find(product => product.id === selectedProductId)),
-    tap(product => console.log('selected product: ', JSON.stringify(product)))
+    tap(product => console.log('selected product: ', JSON.stringify(product))),
+    shareReplay(1)
   );
 
   // create a method that will emit the change in product selection
